@@ -4,6 +4,7 @@ const express = require('express');
 const socketio = require('socket.io');
 const Filter = require('bad-words');
 const {generateMessage} = require('./utils/messages.js');
+const { addUser, removeUser, getUser, getUsersInRoom } = require('./utils/users.js');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,9 +18,20 @@ app.use(express.static(publicDirectoryPath));
 io.on('connection',(socket)=>{
     console.log("Connected to socket io");
 
-    socket.broadcast.emit('message',generateMessage('A user has joined!'));
     
-    socket.emit('message',generateMessage('Welcome!'));
+    socket.on('join',({ username, room },callback) => {
+        const { error, user } = addUser({id: socket.id, username,room});
+        if(error){
+            return callback(error);
+        }
+
+        socket.join(user.room);
+
+        socket.emit('message',generateMessage('Welcome!'));
+        socket.broadcast.to(user.room).emit('message',generateMessage(`${user.username} has joined!`));
+        callback();
+    })
+    
     socket.on('sendMessage',(message,callback)=>{
         const filter = new Filter();
 
@@ -27,12 +39,16 @@ io.on('connection',(socket)=>{
             return callback("Profanity is not allowed!");
         }
 
-        callback("");
-        io.emit('message',generateMessage(message));
+        callback();
+        io.to('a').emit('message',generateMessage(message));
     });
 
     socket.on('disconnect',()=>{
-        io.emit('message',generateMessage('A user has left!'));
+        const user = removeUser(socket.id);
+        if(user){
+            io.to(user.room).emit('message',generateMessage(`${user.username} has left!`));
+        }
+        
     });
 
     socket.on('sendLocation',(location,callback)=>{
